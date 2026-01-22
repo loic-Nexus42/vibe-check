@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 
-type VibeType = 'fire' | 'meh' | 'sleep';
+export type VibeType = 'fire' | 'meh' | 'sleep';
 
 interface VoteCounts {
   fire: number;
@@ -9,12 +9,22 @@ interface VoteCounts {
   sleep: number;
 }
 
-export function useVibeMeter(eventId: string) {
+export interface VibeMeterCallbacks {
+  onNewVote?: (vibe: VibeType) => void;
+}
+
+export function useVibeMeter(eventId: string, callbacks?: VibeMeterCallbacks) {
   const [counts, setCounts] = useState<VoteCounts>({ fire: 0, meh: 0, sleep: 0 });
   const [isLoading, setIsLoading] = useState(true);
   const [isVoting, setIsVoting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastVotedVibe, setLastVotedVibe] = useState<VibeType | null>(null);
+  const callbacksRef = useRef(callbacks);
+  
+  // Keep callbacks ref updated
+  useEffect(() => {
+    callbacksRef.current = callbacks;
+  }, [callbacks]);
 
   // Fetch initial counts
   const fetchCounts = useCallback(async () => {
@@ -27,18 +37,25 @@ export function useVibeMeter(eventId: string) {
       if (error) throw error;
 
       const newCounts: VoteCounts = { fire: 0, meh: 0, sleep: 0 };
+      const initialVibes: VibeType[] = [];
+      
       data?.forEach((vote) => {
         const vibe = vote.vibe as VibeType;
         if (vibe in newCounts) {
           newCounts[vibe]++;
+          initialVibes.push(vibe);
         }
       });
 
       setCounts(newCounts);
       setError(null);
+      
+      // Return initial vibes for physics initialization
+      return initialVibes;
     } catch (err) {
       console.error('Error fetching counts:', err);
       setError('Failed to load votes');
+      return [];
     } finally {
       setIsLoading(false);
     }
@@ -75,7 +92,7 @@ export function useVibeMeter(eventId: string) {
 
   // Set up realtime subscription
   useEffect(() => {
-    fetchCounts();
+    let initialVibesPromise = fetchCounts();
 
     const channel = supabase
       .channel(`votes-${eventId}`)
@@ -89,11 +106,13 @@ export function useVibeMeter(eventId: string) {
         },
         (payload) => {
           const vibe = payload.new.vibe as VibeType;
-          if (vibe in counts || ['fire', 'meh', 'sleep'].includes(vibe)) {
+          if (['fire', 'meh', 'sleep'].includes(vibe)) {
             setCounts((prev) => ({
               ...prev,
               [vibe]: prev[vibe] + 1,
             }));
+            // Notify callback for physics animation
+            callbacksRef.current?.onNewVote?.(vibe);
           }
         }
       )
@@ -111,5 +130,6 @@ export function useVibeMeter(eventId: string) {
     error,
     lastVotedVibe,
     vote,
+    fetchCounts,
   };
 }
