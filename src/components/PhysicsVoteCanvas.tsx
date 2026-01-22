@@ -16,6 +16,7 @@ interface PhysicsVoteCanvasProps {
 export interface PhysicsVoteCanvasHandle {
   addEmoji: (vibe: VibeType) => void;
   addMultipleEmojis: (vibes: VibeType[]) => void;
+  shake: () => void;
 }
 
 export const PhysicsVoteCanvasWithRef = forwardRef<PhysicsVoteCanvasHandle, PhysicsVoteCanvasProps>(
@@ -233,6 +234,25 @@ export const PhysicsVoteCanvasWithRef = forwardRef<PhysicsVoteCanvasHandle, Phys
               Matter.Composite.add(engineRef.current.world, body);
             }
           }, index * 50);
+        });
+      },
+      shake: () => {
+        if (!engineRef.current) return;
+        
+        const allBodies = Matter.Composite.allBodies(engineRef.current.world);
+        const dynamicBodies = allBodies.filter(b => !b.isStatic);
+        
+        dynamicBodies.forEach((body) => {
+          // Apply random explosive force
+          const forceMagnitude = 0.05 + Math.random() * 0.1;
+          const angle = Math.random() * Math.PI * 2;
+          const force = {
+            x: Math.cos(angle) * forceMagnitude,
+            y: -Math.abs(Math.sin(angle) * forceMagnitude) - 0.05, // Always some upward force
+          };
+          
+          Matter.Body.applyForce(body, body.position, force);
+          Matter.Body.setAngularVelocity(body, (Math.random() - 0.5) * 0.5);
         });
       },
     }), []);

@@ -1,9 +1,10 @@
-import { useRef, useCallback, useEffect } from "react";
+import { useRef, useCallback, useEffect, useState } from "react";
 import { VibeButton } from "@/components/VibeButton";
 import { VoteCounter } from "@/components/VoteCounter";
 import { PhysicsVoteCanvasWithRef, PhysicsVoteCanvasHandle } from "@/components/PhysicsVoteCanvas";
 import { useVibeMeter, VibeType } from "@/hooks/useVibeMeter";
 import { useEventId } from "@/hooks/useEventId";
+import { Sparkles } from "lucide-react";
 
 const Index = () => {
   const eventId = useEventId();
@@ -82,6 +83,14 @@ const Index = () => {
         />
       </main>
 
+      {/* Shake Button */}
+      <button
+        onClick={() => physicsCanvasRef.current?.shake()}
+        className="fixed bottom-24 right-4 z-20 p-3 rounded-full bg-primary/90 text-primary-foreground shadow-lg hover:bg-primary active:scale-95 transition-all duration-150"
+        aria-label="Secouer les emojis"
+      >
+        <Sparkles className="w-5 h-5" />
+      </button>
       {/* Footer with Counter */}
       <footer className="w-full max-w-md space-y-3 relative z-10">
         {isLoading ? (
