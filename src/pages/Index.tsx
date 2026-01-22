@@ -1,16 +1,46 @@
+import { useRef, useCallback, useEffect } from "react";
 import { VibeButton } from "@/components/VibeButton";
 import { VoteCounter } from "@/components/VoteCounter";
-import { useVibeMeter } from "@/hooks/useVibeMeter";
+import { PhysicsVoteCanvasWithRef, PhysicsVoteCanvasHandle } from "@/components/PhysicsVoteCanvas";
+import { useVibeMeter, VibeType } from "@/hooks/useVibeMeter";
 import { useEventId } from "@/hooks/useEventId";
 
 const Index = () => {
   const eventId = useEventId();
-  const { counts, isLoading, isVoting, error, lastVotedVibe, vote } = useVibeMeter(eventId);
+  const physicsCanvasRef = useRef<PhysicsVoteCanvasHandle>(null);
+  
+  // Callback when new vote comes in via realtime
+  const handleNewVote = useCallback((vibe: VibeType) => {
+    physicsCanvasRef.current?.addEmoji(vibe);
+  }, []);
+
+  const { counts, isLoading, isVoting, error, lastVotedVibe, vote, fetchCounts } = useVibeMeter(eventId, {
+    onNewVote: handleNewVote,
+  });
+
+  // Load initial emojis when counts are fetched
+  useEffect(() => {
+    if (!isLoading && physicsCanvasRef.current) {
+      // Add existing votes as emojis with a staggered delay
+      const allVibes: VibeType[] = [];
+      for (let i = 0; i < Math.min(counts.fire, 30); i++) allVibes.push('fire');
+      for (let i = 0; i < Math.min(counts.meh, 30); i++) allVibes.push('meh');
+      for (let i = 0; i < Math.min(counts.sleep, 30); i++) allVibes.push('sleep');
+      
+      // Shuffle for natural look
+      allVibes.sort(() => Math.random() - 0.5);
+      
+      physicsCanvasRef.current.addMultipleEmojis(allVibes);
+    }
+  }, [isLoading]); // Only run once when loading completes
 
   return (
-    <div className="flex flex-col items-center justify-between min-h-screen min-h-[100dvh] px-6 py-8 safe-area-inset">
+    <div className="relative flex flex-col items-center justify-between min-h-screen min-h-[100dvh] px-6 py-8 safe-area-inset overflow-hidden">
+      {/* Physics Canvas - Background layer */}
+      <PhysicsVoteCanvasWithRef ref={physicsCanvasRef} />
+      
       {/* Header */}
-      <header className="text-center fade-in">
+      <header className="text-center fade-in relative z-10">
         <h1 className="text-4xl font-bold text-foreground tracking-tight">
           Vibe Meter
         </h1>
@@ -25,7 +55,7 @@ const Index = () => {
       </header>
 
       {/* Vote Buttons */}
-      <main className="flex flex-col items-center gap-5 w-full max-w-sm my-8 fade-in">
+      <main className="flex flex-col items-center gap-5 w-full max-w-sm my-8 fade-in relative z-10">
         <VibeButton
           vibe="fire"
           emoji="🔥"
@@ -53,7 +83,7 @@ const Index = () => {
       </main>
 
       {/* Footer with Counter */}
-      <footer className="w-full max-w-md space-y-3">
+      <footer className="w-full max-w-md space-y-3 relative z-10">
         {isLoading ? (
           <div className="counter-bar animate-pulse">
             <span className="text-muted-foreground">Loading...</span>
