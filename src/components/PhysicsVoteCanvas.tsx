@@ -168,125 +168,165 @@ export const PhysicsVoteCanvasWithRef = forwardRef<PhysicsVoteCanvasHandle, Phys
     const engineRef = useRef<Matter.Engine | null>(null);
     const renderRef = useRef<Matter.Render | null>(null);
     const runnerRef = useRef<Matter.Runner | null>(null);
+    const wallsRef = useRef<Matter.Body[]>([]);
     const isInitializedRef = useRef(false);
 
-    // Initialize physics engine FIRST
+    // Initialize physics engine with delayed start to ensure DOM is ready
     useEffect(() => {
       if (!containerRef.current || !canvasRef.current) return;
 
-      const container = containerRef.current;
-      const width = container.clientWidth;
-      const height = container.clientHeight;
+      let animationId: number;
+      let cleanupCalled = false;
 
-      console.log('Initializing Matter.js with dimensions:', width, height);
+      const initPhysics = () => {
+        if (cleanupCalled || !containerRef.current || !canvasRef.current) return;
 
-      // Create engine
-      const engine = Matter.Engine.create({
-        gravity: { x: 0, y: 0.8 },
-      });
-      engineRef.current = engine;
+        const container = containerRef.current;
+        const width = container.clientWidth;
+        const height = container.clientHeight;
 
-      // Create renderer
-      const render = Matter.Render.create({
-        canvas: canvasRef.current,
-        engine: engine,
-        options: {
-          width,
-          height,
-          wireframes: false,
-          background: 'transparent',
-          pixelRatio: window.devicePixelRatio || 1,
-        },
-      });
-      renderRef.current = render;
+        // Wait for valid dimensions
+        if (width === 0 || height === 0) {
+          console.log('Container not ready, waiting...', width, height);
+          animationId = requestAnimationFrame(initPhysics);
+          return;
+        }
 
-      // Create boundaries (walls and floor)
-      const wallThickness = 50;
-      const walls = [
-        // Floor
-        Matter.Bodies.rectangle(width / 2, height + wallThickness / 2 - 5, width + 100, wallThickness, {
-          isStatic: true,
-          render: { visible: false },
-          friction: 0.8,
-        }),
-        // Left wall
-        Matter.Bodies.rectangle(-wallThickness / 2, height / 2, wallThickness, height * 2, {
-          isStatic: true,
-          render: { visible: false },
-        }),
-        // Right wall
-        Matter.Bodies.rectangle(width + wallThickness / 2, height / 2, wallThickness, height * 2, {
-          isStatic: true,
-          render: { visible: false },
-        }),
-      ];
+        console.log('Initializing Matter.js with dimensions:', width, height);
 
-      Matter.Composite.add(engine.world, walls);
+        const pixelRatio = window.devicePixelRatio || 1;
 
-      // Custom render for emojis - attach BEFORE starting
-      const afterRenderHandler = () => {
-        const ctx = render.context;
-        const bodies = Matter.Composite.allBodies(engine.world);
+        // Set canvas dimensions explicitly
+        canvasRef.current.width = width * pixelRatio;
+        canvasRef.current.height = height * pixelRatio;
+        canvasRef.current.style.width = `${width}px`;
+        canvasRef.current.style.height = `${height}px`;
 
-        bodies.forEach((body) => {
-          if (body.isStatic) return;
-          
-          const emoji = (body as any).emoji as string | undefined;
-          if (!emoji) return;
-
-          ctx.save();
-          ctx.translate(body.position.x, body.position.y);
-          ctx.rotate(body.angle);
-          
-          const size = (body as any).emojiSize || 32;
-          ctx.font = `${size}px Arial`;
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.fillText(emoji, 0, 0);
-          
-          ctx.restore();
+        // Create engine
+        const engine = Matter.Engine.create({
+          gravity: { x: 0, y: 0.8 },
         });
+        engineRef.current = engine;
+
+        // Create renderer - DON'T let Matter.js handle pixelRatio, we do it manually
+        const render = Matter.Render.create({
+          canvas: canvasRef.current,
+          engine: engine,
+          options: {
+            width: width,
+            height: height,
+            wireframes: false,
+            background: 'transparent',
+            pixelRatio: pixelRatio,
+          },
+        });
+        renderRef.current = render;
+
+        // Create boundaries (walls and floor)
+        const wallThickness = 50;
+        const walls = [
+          // Floor
+          Matter.Bodies.rectangle(width / 2, height + wallThickness / 2 - 5, width + 100, wallThickness, {
+            isStatic: true,
+            render: { visible: false },
+            friction: 0.8,
+          }),
+          // Left wall
+          Matter.Bodies.rectangle(-wallThickness / 2, height / 2, wallThickness, height * 2, {
+            isStatic: true,
+            render: { visible: false },
+          }),
+          // Right wall
+          Matter.Bodies.rectangle(width + wallThickness / 2, height / 2, wallThickness, height * 2, {
+            isStatic: true,
+            render: { visible: false },
+          }),
+        ];
+        wallsRef.current = walls;
+
+        Matter.Composite.add(engine.world, walls);
+
+        // Custom render for emojis - render manually after Matter's render
+        const afterRenderHandler = () => {
+          const ctx = render.context;
+          const bodies = Matter.Composite.allBodies(engine.world);
+
+          bodies.forEach((body) => {
+            if (body.isStatic) return;
+            
+            const emoji = (body as any).emoji as string | undefined;
+            if (!emoji) return;
+
+            ctx.save();
+            // Scale position for pixel ratio
+            ctx.translate(body.position.x * pixelRatio, body.position.y * pixelRatio);
+            ctx.rotate(body.angle);
+            
+            const size = ((body as any).emojiSize || 32) * pixelRatio;
+            ctx.font = `${size}px Arial`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(emoji, 0, 0);
+            
+            ctx.restore();
+          });
+        };
+
+        Matter.Events.on(render, 'afterRender', afterRenderHandler);
+
+        // Create runner
+        const runner = Matter.Runner.create();
+        runnerRef.current = runner;
+
+        Matter.Render.run(render);
+        Matter.Runner.run(runner, engine);
+
+        isInitializedRef.current = true;
+        console.log('Matter.js initialized successfully');
+
+        // Handle resize
+        const handleResize = () => {
+          if (!containerRef.current || !canvasRef.current || !renderRef.current) return;
+          const newWidth = containerRef.current.clientWidth;
+          const newHeight = containerRef.current.clientHeight;
+          const newPixelRatio = window.devicePixelRatio || 1;
+          
+          canvasRef.current.width = newWidth * newPixelRatio;
+          canvasRef.current.height = newHeight * newPixelRatio;
+          canvasRef.current.style.width = `${newWidth}px`;
+          canvasRef.current.style.height = `${newHeight}px`;
+          renderRef.current.options.width = newWidth;
+          renderRef.current.options.height = newHeight;
+
+          // Update wall positions
+          if (wallsRef.current.length >= 3) {
+            Matter.Body.setPosition(wallsRef.current[0], { x: newWidth / 2, y: newHeight + wallThickness / 2 - 5 });
+            Matter.Body.setPosition(wallsRef.current[2], { x: newWidth + wallThickness / 2, y: newHeight / 2 });
+          }
+        };
+
+        window.addEventListener('resize', handleResize);
+
+        // Store cleanup function
+        (containerRef.current as any)._physicsCleanup = () => {
+          window.removeEventListener('resize', handleResize);
+          Matter.Events.off(render, 'afterRender', afterRenderHandler);
+          Matter.Render.stop(render);
+          Matter.Runner.stop(runner);
+          Matter.Engine.clear(engine);
+        };
       };
 
-      Matter.Events.on(render, 'afterRender', afterRenderHandler);
-
-      // Create runner
-      const runner = Matter.Runner.create();
-      runnerRef.current = runner;
-
-      Matter.Render.run(render);
-      Matter.Runner.run(runner, engine);
-
-      isInitializedRef.current = true;
-      console.log('Matter.js initialized successfully');
-
-      // Handle resize
-      const handleResize = () => {
-        if (!containerRef.current) return;
-        const newWidth = containerRef.current.clientWidth;
-        const newHeight = containerRef.current.clientHeight;
-        
-        render.canvas.width = newWidth * (window.devicePixelRatio || 1);
-        render.canvas.height = newHeight * (window.devicePixelRatio || 1);
-        render.canvas.style.width = `${newWidth}px`;
-        render.canvas.style.height = `${newHeight}px`;
-        render.options.width = newWidth;
-        render.options.height = newHeight;
-
-        // Update wall positions
-        Matter.Body.setPosition(walls[0], { x: newWidth / 2, y: newHeight + wallThickness / 2 - 5 });
-        Matter.Body.setPosition(walls[2], { x: newWidth + wallThickness / 2, y: newHeight / 2 });
-      };
-
-      window.addEventListener('resize', handleResize);
+      // Start initialization on next frame to ensure DOM is ready
+      animationId = requestAnimationFrame(initPhysics);
 
       return () => {
+        cleanupCalled = true;
+        cancelAnimationFrame(animationId);
         isInitializedRef.current = false;
-        window.removeEventListener('resize', handleResize);
-        Matter.Events.off(render, 'afterRender', afterRenderHandler);
-        Matter.Render.stop(render);
-        Matter.Runner.stop(runner);
-        Matter.Engine.clear(engine);
+        if (containerRef.current && (containerRef.current as any)._physicsCleanup) {
+          (containerRef.current as any)._physicsCleanup();
+        }
       };
     }, []);
 
